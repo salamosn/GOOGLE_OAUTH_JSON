@@ -1,0 +1,55 @@
+name: Record and Upload YouTube Live
+
+on:
+  workflow_dispatch:
+
+jobs:
+  record_and_upload:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib yt-dlp
+
+      - name: Record YouTube live
+        run: |
+          yt-dlp -o "live_record.mp4" https://www.youtube.com/@ForTNiteclips.2/live || echo "No live found"
+
+      - name: Save client_secret.json
+        run: echo "${{ secrets.CLIENT_SECRET_JSON }}" > client_secret.json
+
+      - name: Save token.json
+        run: echo "${{ secrets.TOKEN_JSON }}" > token.json
+
+      - name: Upload to Google Drive
+        run: |
+          python - <<'PYCODE'
+          from googleapiclient.discovery import build
+          from googleapiclient.http import MediaFileUpload
+          from google.oauth2.credentials import Credentials
+          import os, sys
+
+          FILE_NAME = "live_record.mp4"
+          if not os.path.exists(FILE_NAME):
+              print("❌ No file to upload")
+              sys.exit(0)
+
+          creds = Credentials.from_authorized_user_file("token.json", ["https://www.googleapis.com/auth/drive.file"])
+          service = build("drive", "v3", credentials=creds)
+
+          file_metadata = {"name": os.path.basename(FILE_NAME)}
+          media = MediaFileUpload(FILE_NAME, resumable=True)
+          uploaded = service.files().create(body=file_metadata, media_body=media, fields="id, webViewLink").execute()
+
+          print(f"✅ Uploaded: {uploaded.get('webViewLink')}")
+          PYCODE
